@@ -12,7 +12,7 @@ from torchsummary import summary
 
 class Generator(nn.Module):
     def __init__(self, seq_len=150, channels=3, num_classes=9, latent_dim=100, data_embed_dim=10, 
-                label_embed_dim=10 ,depth=3, num_heads=5, 
+                label_embed_dim=50 ,depth=3, num_heads=5,  # Change label_embed_dim to 50
                 forward_drop_rate=0.5, attn_drop_rate=0.5):
         super(Generator, self).__init__()
         self.seq_len = seq_len
@@ -20,38 +20,36 @@ class Generator(nn.Module):
         self.num_classes = num_classes
         self.latent_dim = latent_dim
         self.data_embed_dim = data_embed_dim
-        self.label_embed_dim = label_embed_dim
+        self.label_embed_dim = label_embed_dim  # This now represents the dimension of the time-series data
         self.depth = depth
         self.num_heads = num_heads
         self.attn_drop_rate = attn_drop_rate
         self.forward_drop_rate = forward_drop_rate
-        
+            
         self.l1 = nn.Linear(self.latent_dim + self.label_embed_dim, self.seq_len * self.data_embed_dim)
-        self.label_embedding = nn.Embedding(self.num_classes, self.label_embed_dim) 
-        
+        # Remove the label_embedding layer as we're now dealing with continuous time-series data
+            
         self.blocks = Gen_TransformerEncoder(
-                 depth=self.depth,
-                 emb_size = self.data_embed_dim,
-                 num_heads = self.num_heads,
-                 drop_p = self.attn_drop_rate,
-                 forward_drop_p=self.forward_drop_rate
+                depth=self.depth,
+                emb_size = self.data_embed_dim,
+                num_heads = self.num_heads,
+                drop_p = self.attn_drop_rate,
+                forward_drop_p=self.forward_drop_rate
                 )
 
         self.deconv = nn.Sequential(
             nn.Conv2d(self.data_embed_dim, self.channels, 1, 1, 0)
         )
-        
-    def forward(self, z, labels):
-        c = self.label_embedding(labels)
-        x = torch.cat([z, c], 1)
+            
+    def forward(self, z, labels):  # labels now represent the 5 time-series data
+        x = torch.cat([z, labels], 1)  # Concatenate along the feature dimension
         x = self.l1(x)
         x = x.view(-1, self.seq_len, self.data_embed_dim)
         H, W = 1, self.seq_len
         x = self.blocks(x)
         x = x.reshape(x.shape[0], 1, x.shape[1], x.shape[2])
         output = self.deconv(x.permute(0, 3, 1, 2))
-        return output 
-
+        return output
 
 class Gen_TransformerEncoderBlock(nn.Sequential):
     def __init__(self,
@@ -205,17 +203,16 @@ class PatchEmbedding_Linear(nn.Module):
         
 class Discriminator(nn.Sequential):
     def __init__(self, 
-                 in_channels=3,
-                 patch_size=15,
-                 data_emb_size=50,
-                 label_emb_size=10,
-                 seq_length = 150,
-                 depth=3, 
-                 n_classes=9, 
-                 **kwargs):
+                in_channels=6,  # Change in_channels to 6
+                patch_size=15,
+                data_emb_size=50,
+                label_emb_size=10,
+                seq_length = 150,
+                depth=3, 
+                n_classes=9, 
+                **kwargs):
         super().__init__(
             PatchEmbedding_Linear(in_channels, patch_size, data_emb_size, seq_length),
             Dis_TransformerEncoder(depth, emb_size=data_emb_size, drop_p=0.5, forward_drop_p=0.5, **kwargs),
             ClassificationHead(data_emb_size, 1, n_classes)
         )
-        
