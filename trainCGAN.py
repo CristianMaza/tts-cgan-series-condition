@@ -26,7 +26,23 @@ import io
 import PIL.Image
 from torchvision.transforms import ToTensor
 
+from sklearn.preprocessing import MinMaxScaler
+import pandas as pd
 
+from torch.utils.data import Dataset, DataLoader
+import torch
+
+# Define your custom dataset
+class MyDataset(Dataset):
+    def __init__(self, df):
+        self.data = torch.tensor(df.values, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+    
 def main():
     args = cfg.parse_args()
     
@@ -92,13 +108,28 @@ def main_worker(gpu, ngpus_per_node, args):
             nn.init.constant_(m.bias.data, 0.0)
 
     # import network
-    gen_net = Generator(seq_len=187, channels=1, num_classes=5, latent_dim=100, data_embed_dim=10, 
-                        label_embed_dim=10 ,depth=3, num_heads=5, 
-                        forward_drop_rate=0.5, attn_drop_rate=0.5)
+
+    # gen_net = Generator(seq_len=187, channels=1, num_classes=5, latent_dim=100, data_embed_dim=10, 
+    #                     label_embed_dim=10 ,depth=3, num_heads=5, 
+    #                     forward_drop_rate=0.5, attn_drop_rate=0.5)
     
+    # print(gen_net)
+    # dis_net = Discriminator(in_channels=1, patch_size=1, data_emb_size=50, label_emb_size=10, seq_length = 187, depth=3, n_classes=5)
+    # print(dis_net)
+    
+    # Initialize your generator and discriminator
+    gen_net = Generator(seq_len=187, channels=1, num_classes=1, latent_dim=100, data_embed_dim=10,
+                        label_embed_dim=50 ,depth=3, num_heads=5,
+                        forward_drop_rate=0.5, attn_drop_rate=0.5)
+
+    dis_net = Discriminator(in_channels=6, patch_size=1, data_emb_size=50,
+                            label_embed_dim=50, seq_length=187, depth=3,
+                            n_classes=1)  # Set n_classes to 1
+
+    # Print the architectures of your generator and discriminator
     print(gen_net)
-    dis_net = Discriminator(in_channels=1, patch_size=1, data_emb_size=50, label_emb_size=10, seq_length = 187, depth=3, n_classes=5)
     print(dis_net)
+
     
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -158,9 +189,31 @@ def main_worker(gpu, ngpus_per_node, args):
     args.max_epoch = args.max_epoch * args.n_critic
     
     #load dataset
-    train_set = mitbih_train()
-    train_loader = data.DataLoader(train_set, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
     
+    
+    # train_set = mitbih_train()
+    # train_loader = data.DataLoader(train_set, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
+
+    # Read the csv file
+    df = pd.read_csv('final_data.csv')
+
+    # Initialize a scaler
+    scaler = MinMaxScaler()
+
+    # Fit the scaler to your data
+    scaler.fit(df)
+
+    # Transform your data
+    df_normalized = scaler.transform(df)
+
+    # Reshape your data to (num_samples, seq_len, num_features)
+    df_reshaped = np.reshape(df_normalized, (-1, 187, 6))
+
+    # Initialize your dataset and data loader
+    train_set = MyDataset(df_reshaped)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, num_workers=args.num_workers, shuffle=True)
+
+
     if args.max_iter:
         args.max_epoch = np.ceil(args.max_iter * args.n_critic / len(train_loader))
 
